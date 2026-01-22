@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Losowanie posiłków</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #results {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Losowanie posiłków kuchni polskiej i włoskiej</h1>
+    <p>Kliknij przycisk, aby wylosować po jednym posiłku na każdy z siedmiu dni.</p>
+    <button onclick="losujPosilki()">Losuj posiłki</button>
+    <div id="results"></div>
+
+    <script>
+        async function losujPosilki() {
+            try {
+                const response = await fetch('/losuj', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const data = await response.json();
+                const wyniki = data.wyniki;
+                document.getElementById('results').innerHTML = wyniki.map((danie, index) => `<p>Dzień ${index + 1}: ${danie}</p>`).join('');
+            } catch (error) {
+                console.error('Błąd:', error);
+                document.getElementById('results').innerHTML = '<p>Wystąpił błąd podczas losowania.</p>';
+            }
+        }
+    </script>
+</body>
+</html>
