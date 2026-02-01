@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import socket
 from flask import Flask, render_template, jsonify
 
 # Optional: load .env in development
@@ -10,19 +11,22 @@ try:
 except Exception:
     pass
 
-import psycopg2
-import psycopg2.extras
+from supabase import create_client
 
 app = Flask(__name__)
 
 # Read DATABASE_URL from env (Supabase provides this). If not set, fall back to in-memory list.
 DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('SUPABASE_DATABASE_URL')
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
-# Inform developer if DATABASE_URL was provided (useful during development)
-if DATABASE_URL:
-    app.logger.info('DATABASE_URL found in environment; DB will be used.')
+# Inform developer if Supabase credentials were provided
+if SUPABASE_URL and SUPABASE_KEY:
+    app.logger.info('SUPABASE_URL and SUPABASE_KEY found in environment; Supabase will be used.')
+elif DATABASE_URL:
+    app.logger.info('DATABASE_URL found in environment; legacy DB URL will be used.')
 else:
-    app.logger.info('DATABASE_URL not set; using in-memory fallback. Copy .env.example -> .env and set DATABASE_URL to use Supabase.')
+    app.logger.info('Database not configured; using in-memory fallback. Copy .env.example -> .env and set SUPABASE_URL and SUPABASE_KEY to use Supabase.')
 
 # Default seed data (used to seed the DB on first run or used as fallback)
 DEFAULT_DANIA = [
@@ -35,79 +39,77 @@ DEFAULT_DANIA = [
 
 # DB helpers
 
-def get_conn():
-    if not DATABASE_URL:
+def get_supabase():
+    """Return a Supabase client or None if not configured."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
         return None
-    # Force SSL (Supabase Postgres requires it)
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def init_db():
-    """Create table if missing and seed default dinners on first run."""
-    conn = get_conn()
-    if not conn:
-        app.logger.warning('DATABASE_URL not set - using in-memory list')
+    """Seed default dinners on first run when Supabase is available.
+
+    Note: Creating tables (DDL) via the public Supabase client is not supported
+    from the REST layer. Please create the `dinners` table in the Supabase
+    dashboard or via migrations. This function will attempt to seed the table
+    if it already exists.
+    """
+    sb = get_supabase()
+    if not sb:
+        app.logger.warning('Supabase credentials not set - using in-memory list')
         return
 
-    with conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS dinners (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    ingredients JSONB NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT now()
-                );
-                """
-            )
-            # Check if table empty
-            cur.execute('SELECT count(*) FROM dinners;')
-            count = cur.fetchone()[0]
-            if count == 0:
-                # Seed default dinners
-                insert_sql = 'INSERT INTO dinners (name, ingredients) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING;'
-                for d in DEFAULT_DANIA:
-                    cur.execute(insert_sql, (d['nazwa'], json.dumps(d['skladniki'])))
-    conn.close()
+    try:
+        # Try to read the table; if it doesn't exist, the API may return an error or empty data.
+        res = sb.table('dinners').select('name, ingredients').execute()
+        rows = res.data if hasattr(res, 'data') else res.get('data', None)
+        if rows is None:
+            app.logger.warning('Could not access `dinners` table. Ensure it exists in Supabase.')
+            return
+        if len(rows) == 0:
+            for d in DEFAULT_DANIA:
+                sb.table('dinners').insert({'name': d['nazwa'], 'ingredients': d['skladniki']}).execute()
+    except Exception as e:
+        app.logger.warning(f'Error accessing Supabase: {e}')
+        return
 
 
 def get_dishes():
-    """Return list of dishes from DB or fallback to DEFAULT_DANIA."""
-    conn = get_conn()
-    if not conn:
+    """Return list of dishes from Supabase or fallback to DEFAULT_DANIA."""
+    sb = get_supabase()
+    if not sb:
         return DEFAULT_DANIA.copy()
 
-    with conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('SELECT name, ingredients FROM dinners ORDER BY id;')
-            rows = cur.fetchall()
-    conn.close()
+    try:
+        res = sb.table('dinners').select('name, ingredients').execute()
+        rows = res.data if hasattr(res, 'data') else res.get('data', [])
+    except Exception as e:
+        app.logger.warning(f'Error querying Supabase: {e}')
+        return DEFAULT_DANIA.copy()
 
     # Convert to expected format
     results = []
     for r in rows:
-        results.append({'nazwa': r['name'], 'skladniki': r['ingredients']})
+        # Supabase returns keys as defined in the table
+        results.append({'nazwa': r.get('name'), 'skladniki': r.get('ingredients')})
     return results
 
 
 def add_dish(name, skladniki):
-    conn = get_conn()
-    if not conn:
-        app.logger.warning('DATABASE_URL not set - cannot add to DB')
+    sb = get_supabase()
+    if not sb:
+        app.logger.warning('Supabase not configured - cannot add to DB')
         return False
 
-    with conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                'INSERT INTO dinners (name, ingredients) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING;',
-                (name, json.dumps(skladniki))
-            )
-    conn.close()
-    return True
+    try:
+        sb.table('dinners').insert({'name': name, 'ingredients': skladniki}).execute()
+        return True
+    except Exception as e:
+        app.logger.warning(f'Error inserting into Supabase: {e}')
+        return False
 
 
-@app.before_first_request
+#@app.before_first_request
 def startup():
     """Initialize DB on first run."""
     init_db()
@@ -160,4 +162,5 @@ def losuj():
 
 
 if __name__ == '__main__':
+    startup()
     app.run(debug=True)
