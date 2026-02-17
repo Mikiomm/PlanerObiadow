@@ -19,6 +19,75 @@
             margin-top: 20px;
             font-size: 18px;
         }
+        .form-container {
+            margin-top: 40px;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            background-color: #f9f9f9;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        button[type="reset"] {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button[type="reset"]:hover {
+            background-color: #da190b;
+        }
+        .message {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
 <body>
@@ -26,6 +95,25 @@
     <p>Kliknij przycisk, aby wylosować po jednym posiłku na każdy z siedmiu dni.</p>
     <button onclick="losujPosilki()">Losuj posiłki</button>
     <div id="results"></div>
+
+    <div class="form-container">
+        <h2>Dodaj nowe danie</h2>
+        <form onsubmit="dodajDanie(event)">
+            <div class="form-group">
+                <label for="nazwa">Nazwa dania:</label>
+                <input type="text" id="nazwa" name="nazwa" required placeholder="np. Rosół">
+            </div>
+            <div class="form-group">
+                <label for="skladniki">Składniki (oddzielone przecinkami):</label>
+                <textarea id="skladniki" name="skladniki" required placeholder="np. mięso, marchew, pietruszka, sól, pieprz"></textarea>
+            </div>
+            <div class="button-group">
+                <button type="submit">Dodaj danie</button>
+                <button type="reset">Wyczyść</button>
+            </div>
+            <div id="message"></div>
+        </form>
+    </div>
 
     <script>
         async function losujPosilki() {
@@ -42,6 +130,47 @@
             } catch (error) {
                 console.error('Błąd:', error);
                 document.getElementById('results').innerHTML = '<p>Wystąpił błąd podczas losowania.</p>';
+            }
+        }
+
+        async function dodajDanie(event) {
+            event.preventDefault();
+            
+            const nazwa = document.getElementById('nazwa').value.trim();
+            const skladniki = document.getElementById('skladniki').value.trim();
+            const messageDiv = document.getElementById('message');
+            
+            try {
+                const response = await fetch('/dodaj-danie', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        nazwa: nazwa,
+                        skladniki: skladniki
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    messageDiv.className = 'message success';
+                    messageDiv.textContent = '✓ ' + data.message;
+                    document.getElementById('nazwa').value = '';
+                    document.getElementById('skladniki').value = '';
+                    setTimeout(() => {
+                        messageDiv.textContent = '';
+                        messageDiv.className = '';
+                    }, 3000);
+                } else {
+                    messageDiv.className = 'message error';
+                    messageDiv.textContent = '✗ ' + (data.error || 'Błąd przy dodawaniu dania');
+                }
+            } catch (error) {
+                console.error('Błąd:', error);
+                messageDiv.className = 'message error';
+                messageDiv.textContent = '✗ Błąd przy komunikacji z serwerem';
             }
         }
     </script>

@@ -2,7 +2,7 @@ import os
 import json
 import random
 import socket
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 
 # Optional: load .env in development
 try:
@@ -159,6 +159,37 @@ def losuj():
         dostepne_dania.remove(wybrane)
 
     return jsonify({'wyniki': wyniki})
+
+
+@app.route('/dodaj-danie', methods=['POST'])
+def dodaj_danie():
+    """Add a new dish with name and ingredients."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    nazwa = data.get('nazwa', '').strip()
+    skladniki_str = data.get('skladniki', '').strip()
+    
+    if not nazwa:
+        return jsonify({'success': False, 'error': 'Nazwa dania jest wymagana'}), 400
+    
+    if not skladniki_str:
+        return jsonify({'success': False, 'error': 'Składniki są wymagane'}), 400
+    
+    # Parse ingredients - split by comma and strip whitespace
+    skladniki = [s.strip() for s in skladniki_str.split(',') if s.strip()]
+    
+    if not skladniki:
+        return jsonify({'success': False, 'error': 'Podaj przynajmniej jeden składnik'}), 400
+    
+    success = add_dish(nazwa, skladniki)
+    
+    if success:
+        return jsonify({'success': True, 'message': 'Danie zostało dodane'}), 201
+    else:
+        return jsonify({'success': False, 'error': 'Nie udało się dodać dania'}), 500
 
 
 if __name__ == '__main__':
